@@ -3,10 +3,7 @@ package com.hins.cloudpicturebackend.service;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.IService;
-import com.hins.cloudpicturebackend.model.dto.picture.PictureQueryRequest;
-import com.hins.cloudpicturebackend.model.dto.picture.PictureReviewRequest;
-import com.hins.cloudpicturebackend.model.dto.picture.PictureUploadByBatchRequest;
-import com.hins.cloudpicturebackend.model.dto.picture.PictureUploadRequest;
+import com.hins.cloudpicturebackend.model.dto.picture.*;
 import com.hins.cloudpicturebackend.model.dto.user.UserQueryRequest;
 import com.hins.cloudpicturebackend.model.entity.Picture;
 import com.hins.cloudpicturebackend.model.entity.User;
@@ -16,10 +13,10 @@ import org.springframework.web.multipart.MultipartFile;
 import javax.servlet.http.HttpServletRequest;
 
 /**
-* @author Hins
-* @description 针对表【picture(图片)】的数据库操作Service
-* @createDate 2025-02-09 12:11:13
-*/
+ * @author Hins
+ * @description 针对表【picture(图片)】的数据库操作Service
+ * @createDate 2025-02-09 12:11:13
+ */
 public interface PictureService extends IService<Picture> {
     /**
      * 校验图片
@@ -31,7 +28,7 @@ public interface PictureService extends IService<Picture> {
     /**
      * 上传图片
      *
-     * @param inputSource 文件输入源
+     * @param inputSource          文件输入源
      * @param pictureUploadRequest
      * @param loginUser
      * @return
@@ -51,6 +48,7 @@ public interface PictureService extends IService<Picture> {
 
     /**
      * 获取图片包装类（分页）
+     *
      * @param picturePage
      * @param request
      * @return
@@ -59,6 +57,7 @@ public interface PictureService extends IService<Picture> {
 
     /**
      * 获取查询对象
+     *
      * @param pictureQueryRequest
      * @return
      */
@@ -74,6 +73,7 @@ public interface PictureService extends IService<Picture> {
 
     /**
      * 填充审核参数
+     *
      * @param picture
      * @param loginUser
      */
@@ -97,4 +97,28 @@ public interface PictureService extends IService<Picture> {
      * @param oldPicture
      */
     void clearPictureFile(Picture oldPicture);
+
+    /**
+     * 删除图片
+     *
+     * @param pictureId
+     * @param loginUser
+     */
+    void deletePicture(long pictureId, User loginUser);
+
+    /**
+     * 编辑图片
+     *
+     * @param pictureEditRequest
+     * @param loginUser
+     */
+    void editPicture(PictureEditRequest pictureEditRequest, User loginUser);
+
+    /**
+     * 校验空间图片的权限
+     *
+     * @param loginUser
+     * @param picture
+     */
+    void checkPictureAuth(User loginUser, Picture picture);
 }
