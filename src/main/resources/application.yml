@@ -60,3 +60,6 @@ knife4j:
 #    secretKey: xxx
 #    region: xxx
 #    bucket: xxx
+# 图片搜索配置（Pexels）
+#imgsearch:
+#  API_KEY: xxx

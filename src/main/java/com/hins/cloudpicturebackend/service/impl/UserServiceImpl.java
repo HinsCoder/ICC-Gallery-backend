@@ -27,14 +27,14 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
-* @author Hins
-* @description 针对表【user(用户)】的数据库操作Service实现
-* @createDate 2025-02-03 22:39:29
-*/
+ * @author Hins
+ * @description 针对表【user(用户)】的数据库操作Service实现
+ * @createDate 2025-02-03 22:39:29
+ */
 @Service
 @Slf4j
 public class UserServiceImpl extends ServiceImpl<UserMapper, User>
-    implements UserService{
+        implements UserService {
 
     /**
      * 用户注册
@@ -112,6 +112,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
 
     /**
      * 获取加密后的密码
+     *
      * @param userPassword 用户密码
      * @return 加密后的密码
      */
@@ -142,12 +143,13 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
 
     /**
      * 获取脱敏类的用户信息
+     *
      * @param user 用户
      * @return 脱敏后的用户信息
      */
     @Override
     public LoginUserVO getLoginUserVO(User user) {
-        if(user == null) {
+        if (user == null) {
             return null;
         }
         LoginUserVO loginUserVO = new LoginUserVO();
@@ -157,6 +159,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
 
     /**
      * 获得脱敏后的用户信息
+     *
      * @param user
      * @return
      */
@@ -173,6 +176,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
 
     /**
      * 获得脱敏后的用户信息列表
+     *
      * @param userList
      * @return
      */
@@ -225,7 +229,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     public boolean isAdmin(User user) {
         return user != null && UserRoleEnum.ADMIN.getValue().equals(user.getUserRole());
     }
-
 
 
 }

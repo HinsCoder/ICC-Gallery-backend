@@ -19,10 +19,10 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
-* @author Hins
-* @description 针对表【user(用户)】的数据库操作Service
-* @createDate 2025-02-03 22:39:29
-*/
+ * @author Hins
+ * @description 针对表【user(用户)】的数据库操作Service
+ * @createDate 2025-02-03 22:39:29
+ */
 public interface UserService extends IService<User> {
 
     /**
@@ -63,6 +63,7 @@ public interface UserService extends IService<User> {
 
     /**
      * 获得脱敏后的登录用户信息
+     *
      * @param user
      * @return
      */
@@ -70,6 +71,7 @@ public interface UserService extends IService<User> {
 
     /**
      * 获得脱敏后的用户信息
+     *
      * @param user
      * @return
      */
@@ -77,6 +79,7 @@ public interface UserService extends IService<User> {
 
     /**
      * 获得脱敏后的用户信息列表
+     *
      * @param userList
      * @return
      */
@@ -85,6 +88,7 @@ public interface UserService extends IService<User> {
 
     /**
      * 用户注销
+     *
      * @param request
      * @return
      */
@@ -92,6 +96,7 @@ public interface UserService extends IService<User> {
 
     /**
      * 获取查询条件
+     *
      * @param userQueryRequest
      * @return
      */

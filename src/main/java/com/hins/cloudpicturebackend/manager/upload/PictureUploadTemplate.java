@@ -25,17 +25,18 @@ import java.util.List;
  * 图片上传模板
  */
 @Slf4j
-public abstract class PictureUploadTemplate {  
-  
+public abstract class PictureUploadTemplate {
+
     @Resource
     protected CosManager cosManager;
-  
-    @Resource  
+
+    @Resource
     protected CosClientConfig cosClientConfig;
 
     /**
      * 上传图片
-     * @param inputSource 文件
+     *
+     * @param inputSource      文件
      * @param uploadPathPrefix 上传路径前缀
      * @return
      */
@@ -47,7 +48,7 @@ public abstract class PictureUploadTemplate {
         String originalFilename = getOriginFilename(inputSource);
         // 自己拼接文件上传路径，而不是使用原始文件名称，可以增强安全性
         String uploadFilename = String.format("%s_%s.%s", DateUtil.formatDate(new Date()), uuid,
-                FileUtil.getSuffix(originalFilename));
+                FileUtil.getSuffix(originalFilename).isEmpty() ? "png" : FileUtil.getSuffix(originalFilename));
         String uploadPath = String.format("/%s/%s", uploadPathPrefix, uploadFilename);
         File file = null;
         try {
@@ -72,31 +73,31 @@ public abstract class PictureUploadTemplate {
                     thumbnailCiObject = objectList.get(1);
                 }
                 // 封装压缩图的返回结果
-                return buildResult(originalFilename, compressedCiObject, thumbnailCiObject);
+                return buildResult(originalFilename, compressedCiObject, thumbnailCiObject, imageInfo);
             }
             return buildResult(originalFilename, file, uploadPath, imageInfo);
         } catch (Exception e) {
             log.error("图片上传到对象存储失败", e);
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "上传失败");
-        } finally {  
+        } finally {
             // 6. 清理临时文件  
-            deleteTempFile(file);  
-        }  
-    }  
-  
-    /**  
-     * 校验输入源（本地文件或 URL）  
-     */  
-    protected abstract void validPicture(Object inputSource);  
-  
-    /**  
-     * 获取输入源的原始文件名  
-     */  
-    protected abstract String getOriginFilename(Object inputSource);  
-  
-    /**  
-     * 处理输入源并生成本地临时文件  
-     */  
+            deleteTempFile(file);
+        }
+    }
+
+    /**
+     * 校验输入源（本地文件或 URL）
+     */
+    protected abstract void validPicture(Object inputSource);
+
+    /**
+     * 获取输入源的原始文件名
+     */
+    protected abstract String getOriginFilename(Object inputSource);
+
+    /**
+     * 处理输入源并生成本地临时文件
+     */
     protected abstract void processFile(Object inputSource, File file) throws Exception;
 
     /**
@@ -104,10 +105,11 @@ public abstract class PictureUploadTemplate {
      *
      * @param originalFilename   原始文件名
      * @param compressedCiObject 压缩后的对象
-     * @param thumbnailCiObject 缩略图对象
+     * @param thumbnailCiObject  缩略图对象
+     * @param imageInfo          图片信息
      * @return
      */
-    private UploadPictureResult buildResult(String originalFilename, CIObject compressedCiObject, CIObject thumbnailCiObject) {
+    private UploadPictureResult buildResult(String originalFilename, CIObject compressedCiObject, CIObject thumbnailCiObject, ImageInfo imageInfo) {
         // 计算宽高
         int picWidth = compressedCiObject.getWidth();
         int picHeight = compressedCiObject.getHeight();
@@ -122,6 +124,7 @@ public abstract class PictureUploadTemplate {
         uploadPictureResult.setPicHeight(picHeight);
         uploadPictureResult.setPicScale(picScale);
         uploadPictureResult.setPicFormat(compressedCiObject.getFormat());
+        uploadPictureResult.setPicColor(imageInfo.getAve());
         // 设置缩略图地址
         uploadPictureResult.setThumbnailUrl(cosClientConfig.getHost() + "/" + thumbnailCiObject.getKey());
         // 返回可访问的地址
@@ -151,22 +154,23 @@ public abstract class PictureUploadTemplate {
         uploadPictureResult.setPicHeight(picHeight);
         uploadPictureResult.setPicScale(picScale);
         uploadPictureResult.setPicFormat(imageInfo.getFormat());
+        uploadPictureResult.setPicColor(imageInfo.getAve());
         // 返回可访问的地址
         return uploadPictureResult;
     }
-  
-    /**  
+
+    /**
      * 删除临时文件
      *
      * @param file
-     */  
-    public void deleteTempFile(File file) {  
-        if (file == null) {  
-            return;  
-        }  
-        boolean deleteResult = file.delete();  
-        if (!deleteResult) {  
-            log.error("file delete error, filepath = {}", file.getAbsolutePath());  
-        }  
-    }  
+     */
+    public void deleteTempFile(File file) {
+        if (file == null) {
+            return;
+        }
+        boolean deleteResult = file.delete();
+        if (!deleteResult) {
+            log.error("file delete error, filepath = {}", file.getAbsolutePath());
+        }
+    }
 }

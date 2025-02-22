@@ -4,13 +4,15 @@ import com.baomidou.mybatisplus.annotation.*;
 
 import java.io.Serializable;
 import java.util.Date;
+
 import lombok.Data;
 
 /**
  * 空间
+ *
  * @TableName space
  */
-@TableName(value ="space")
+@TableName(value = "space")
 @Data
 public class Space implements Serializable {
     /**

@@ -4,13 +4,15 @@ import com.baomidou.mybatisplus.annotation.*;
 
 import java.io.Serializable;
 import java.util.Date;
+
 import lombok.Data;
 
 /**
  * 图片
+ *
  * @TableName picture
  */
-@TableName(value ="picture")
+@TableName(value = "picture")
 @Data
 public class Picture implements Serializable {
     /**
@@ -73,6 +75,11 @@ public class Picture implements Serializable {
      * 图片格式
      */
     private String picFormat;
+
+    /**
+     * 图片主色调
+     */
+    private String picColor;
 
     /**
      * 创建用户 id

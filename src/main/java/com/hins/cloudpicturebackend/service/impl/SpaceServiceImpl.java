@@ -32,10 +32,10 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
-* @author Hins
-* @description 针对表【space(空间)】的数据库操作Service实现
-* @createDate 2025-02-16 22:25:01
-*/
+ * @author Hins
+ * @description 针对表【space(空间)】的数据库操作Service实现
+ * @createDate 2025-02-16 22:25:01
+ */
 @Service
 public class SpaceServiceImpl extends ServiceImpl<SpaceMapper, Space>
         implements SpaceService {
@@ -43,6 +43,7 @@ public class SpaceServiceImpl extends ServiceImpl<SpaceMapper, Space>
     private UserService userService;
     @Resource
     private TransactionTemplate transactionTemplate;
+
     /**
      * 创建空间
      *
@@ -91,6 +92,7 @@ public class SpaceServiceImpl extends ServiceImpl<SpaceMapper, Space>
             return Optional.ofNullable(newSpaceId).orElse(-1L);
         }
     }
+
     @Override
     public void validSpace(Space space, boolean add) {
         ThrowUtils.throwIf(space == null, ErrorCode.PARAMS_ERROR);
@@ -116,6 +118,7 @@ public class SpaceServiceImpl extends ServiceImpl<SpaceMapper, Space>
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "空间级别不存在");
         }
     }
+
     @Override
     public SpaceVO getSpaceVO(Space space, HttpServletRequest request) {
         // 对象转封装类
@@ -129,6 +132,7 @@ public class SpaceServiceImpl extends ServiceImpl<SpaceMapper, Space>
         }
         return spaceVO;
     }
+
     @Override
     public Page<SpaceVO> getSpaceVOPage(Page<Space> spacePage, HttpServletRequest request) {
         List<Space> spaceList = spacePage.getRecords();
@@ -158,6 +162,7 @@ public class SpaceServiceImpl extends ServiceImpl<SpaceMapper, Space>
         spaceVOPage.setRecords(spaceVOList);
         return spaceVOPage;
     }
+
     @Override
     public QueryWrapper<Space> getQueryWrapper(SpaceQueryRequest spaceQueryRequest) {
         QueryWrapper<Space> queryWrapper = new QueryWrapper<>();
@@ -180,6 +185,7 @@ public class SpaceServiceImpl extends ServiceImpl<SpaceMapper, Space>
         queryWrapper.orderBy(StrUtil.isNotEmpty(sortField), sortOrder.equals("ascend"), sortField);
         return queryWrapper;
     }
+
     @Override
     public void fillSpaceBySpaceLevel(Space space) {
         SpaceLevelEnum spaceLevelEnum = SpaceLevelEnum.getEnumByValue(space.getSpaceLevel());

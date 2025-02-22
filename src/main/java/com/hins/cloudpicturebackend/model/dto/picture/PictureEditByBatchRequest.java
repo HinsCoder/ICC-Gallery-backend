@@ -6,25 +6,19 @@ import java.io.Serializable;
 import java.util.List;
 
 /**
- * 图片编辑请求
+ * 图片批量编辑请求
  */
 @Data
-public class PictureEditRequest implements Serializable {
+public class PictureEditByBatchRequest implements Serializable {
+    /**
+     * 图片 id 列表
+     */
+    private List<Long> pictureIdList;
 
     /**
-     * id
+     * 空间 id
      */
-    private Long id;
-
-    /**
-     * 图片名称
-     */
-    private String name;
-
-    /**
-     * 简介
-     */
-    private String introduction;
+    private Long spaceId;
 
     /**
      * 分类
@@ -35,6 +29,11 @@ public class PictureEditRequest implements Serializable {
      * 标签
      */
     private List<String> tags;
+
+    /**
+     * 命名规则
+     */
+    private String nameRule;
 
     private static final long serialVersionUID = 1L;
 }
