@@ -3,6 +3,7 @@ package com.hins.cloudpicturebackend.service;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.IService;
+import com.hins.cloudpicturebackend.api.aliyunai.model.CreateOutPaintingTaskResponse;
 import com.hins.cloudpicturebackend.model.dto.picture.*;
 import com.hins.cloudpicturebackend.model.dto.user.UserQueryRequest;
 import com.hins.cloudpicturebackend.model.entity.Picture;
@@ -19,6 +20,7 @@ import java.util.List;
  * @createDate 2025-02-09 12:11:13
  */
 public interface PictureService extends IService<Picture> {
+
     /**
      * 校验图片
      *
@@ -141,4 +143,14 @@ public interface PictureService extends IService<Picture> {
      */
 
     void editPictureByBatch(PictureEditByBatchRequest pictureEditByBatchRequest, User loginUser);
+
+    /**
+     * 创建扩图任务
+     *
+     * @param createPictureOutPaintingTaskRequest
+     * @param loginUser
+     */
+    CreateOutPaintingTaskResponse
+        createPictureOutPaintingTask(CreatePictureOutPaintingTaskRequest
+        createPictureOutPaintingTaskRequest, User loginUser);
 }

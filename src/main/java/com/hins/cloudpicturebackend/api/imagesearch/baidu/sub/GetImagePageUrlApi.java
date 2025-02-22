@@ -40,7 +40,7 @@ public class GetImagePageUrlApi {
         formData.put("image_source", "PC_UPLOAD_URL");
         // 获取当前时间戳
         long uptime = System.currentTimeMillis();
-        // 请求地址
+        // 请求地址（Token自行从开发者工具截取，不稳定）
         String url = "https://graph.baidu.com/upload?uptime=" + uptime;
         String acsToken = "0snT2/8s4uJsOf3y/TjnlE+w7a4ljatmtHMQOncOETQI222Cqbj7IUUOR+HUrR4XkSN5nq3UrXPshSc/QE0w4TIlWctwpAYED34dS/2rWy4achpM1ai9yn1wlzb5eE27U+ChT57fxE7/0cbtO1o0ZaF+nBCBxC0867B+GEqFTwGZl4Bv81lNtOXs9jIZ1intySY72JhBRe9muXplg27hWFccQnwaoa9rUUQoAZaBcW8rPm7Gu4woM79FUUHWPqhYWeHWh3S5qaw2ZVVIULFSWEUiIkCNZVuc/QRYdXL7nktlQ72MllLtgKvDhKTue+/x2zQJ9Ken94gH0WclWVtmvc9fgqhVCxH+zT4sQ5TgBWieRBNoSJeTw5j6PlXULVzjaTitxjT4zA+lKHHIs24DKkke0cbcwYBxr/6C5Q8Ey5FCgd4VT0g9LH+kLZPopfgoib9O8Cv5CnacfiWgIjOmRQ==";
         try {
