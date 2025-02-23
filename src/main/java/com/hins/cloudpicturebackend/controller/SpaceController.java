@@ -9,6 +9,7 @@ import com.hins.cloudpicturebackend.constant.UserConstant;
 import com.hins.cloudpicturebackend.exception.BusinessException;
 import com.hins.cloudpicturebackend.exception.ErrorCode;
 import com.hins.cloudpicturebackend.exception.ThrowUtils;
+import com.hins.cloudpicturebackend.manager.auth.SpaceUserAuthManager;
 import com.hins.cloudpicturebackend.model.dto.space.*;
 import com.hins.cloudpicturebackend.model.entity.Space;
 import com.hins.cloudpicturebackend.model.entity.User;
@@ -33,8 +34,13 @@ import java.util.stream.Collectors;
 public class SpaceController {
     @Resource
     private UserService userService;
+
     @Resource
     private SpaceService spaceService;
+
+    @Resource
+    private SpaceUserAuthManager spaceUserAuthManager;
+
     @PostMapping("/add")
     public BaseResponse<Long> addSpace(@RequestBody SpaceAddRequest spaceAddRequest, HttpServletRequest request) {
         ThrowUtils.throwIf(spaceAddRequest == null, ErrorCode.PARAMS_ERROR);
@@ -42,6 +48,7 @@ public class SpaceController {
         long newId = spaceService.addSpace(spaceAddRequest, loginUser);
         return ResultUtils.success(newId);
     }
+
     @PostMapping("/delete")
     public BaseResponse<Boolean> deleteSpace(@RequestBody DeleteRequest deleteRequest
             , HttpServletRequest request) {
@@ -60,6 +67,7 @@ public class SpaceController {
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
         return ResultUtils.success(true);
     }
+
     /**
      * 更新空间（仅管理员可用）
      *
@@ -90,6 +98,7 @@ public class SpaceController {
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
         return ResultUtils.success(true);
     }
+
     /**
      * 根据 id 获取空间（仅管理员可用）
      */
@@ -103,6 +112,7 @@ public class SpaceController {
         // 获取封装类
         return ResultUtils.success(space);
     }
+
     /**
      * 根据 id 获取空间（封装类）
      */
@@ -112,9 +122,14 @@ public class SpaceController {
         // 查询数据库
         Space space = spaceService.getById(id);
         ThrowUtils.throwIf(space == null, ErrorCode.NOT_FOUND_ERROR);
+        SpaceVO spaceVO = spaceService.getSpaceVO(space, request);
+        User loginUser = userService.getLoginUser(request);
+        List<String> permissionList = spaceUserAuthManager.getPermissionList(space, loginUser);
+        spaceVO.setPermissionList(permissionList);
         // 获取封装类
-        return ResultUtils.success(spaceService.getSpaceVO(space, request));
+        return ResultUtils.success(spaceVO);
     }
+
     /**
      * 分页获取空间列表（仅管理员可用）
      */
@@ -128,6 +143,7 @@ public class SpaceController {
                 spaceService.getQueryWrapper(spaceQueryRequest));
         return ResultUtils.success(spacePage);
     }
+
     /**
      * 分页获取空间列表（封装类）
      */
@@ -144,6 +160,7 @@ public class SpaceController {
         // 获取封装类
         return ResultUtils.success(spaceService.getSpaceVOPage(spacePage, request));
     }
+
     /**
      * 编辑空间（给用户使用）
      */
@@ -173,6 +190,7 @@ public class SpaceController {
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
         return ResultUtils.success(true);
     }
+
     /**
      * 获取空间级别列表，便于前端展示
      *
