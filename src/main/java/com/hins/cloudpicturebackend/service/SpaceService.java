@@ -2,6 +2,8 @@ package com.hins.cloudpicturebackend.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.hins.cloudpicturebackend.exception.BusinessException;
+import com.hins.cloudpicturebackend.exception.ErrorCode;
 import com.hins.cloudpicturebackend.model.dto.space.SpaceAddRequest;
 import com.hins.cloudpicturebackend.model.dto.space.SpaceQueryRequest;
 import com.hins.cloudpicturebackend.model.entity.Space;
@@ -66,4 +68,13 @@ public interface SpaceService extends IService<Space> {
      * @param space
      */
     void fillSpaceBySpaceLevel(Space space);
+
+    /**
+     * 校验空间权限
+     *
+     * @param loginUser
+     * @param space
+     */
+    void checkSpaceAuth(User loginUser, Space space);
+
 }
