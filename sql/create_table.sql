@@ -9,6 +9,7 @@ create table if not exists user
 (
     id           bigint auto_increment comment 'id' primary key,
     userAccount  varchar(256)                           not null comment '账号',
+    email        varchar(256)                           NULL COMMENT '用户邮箱',
     userPassword varchar(512)                           not null comment '密码',
     userName     varchar(256)                           null comment '用户昵称',
     userAvatar   varchar(1024)                          null comment '用户头像',
@@ -120,3 +121,7 @@ ALTER TABLE user
     ADD COLUMN vipExpireTime datetime NULL COMMENT '会员过期时间',
     ADD COLUMN vipCode varchar(128) NULL COMMENT '会员兑换码',
     ADD COLUMN vipNumber bigint NULL COMMENT '会员编号';
+
+-- 邮箱字段，用于存储用户的邮箱地址
+ALTER TABLE user
+    ADD COLUMN email VARCHAR(256) NULL COMMENT '用户邮箱';

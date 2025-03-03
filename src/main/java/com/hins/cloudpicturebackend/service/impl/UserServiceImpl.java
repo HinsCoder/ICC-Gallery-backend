@@ -1,41 +1,60 @@
 package com.hins.cloudpicturebackend.service.impl;
 
+import cn.hutool.captcha.CaptchaUtil;
+import cn.hutool.captcha.ShearCaptcha;
+import cn.hutool.captcha.generator.RandomGenerator;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.ObjUtil;
+import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.crypto.digest.DigestUtil;
 import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.hins.cloudpicturebackend.constant.CommonValue;
+import com.hins.cloudpicturebackend.constant.CrawlerConstant;
 import com.hins.cloudpicturebackend.constant.UserConstant;
 import com.hins.cloudpicturebackend.exception.BusinessException;
 import com.hins.cloudpicturebackend.exception.ErrorCode;
+import com.hins.cloudpicturebackend.manager.CrawlerManager;
 import com.hins.cloudpicturebackend.manager.auth.StpKit;
+import com.hins.cloudpicturebackend.manager.upload.FilePictureUpload;
+import com.hins.cloudpicturebackend.manager.upload.PictureUploadTemplate;
+import com.hins.cloudpicturebackend.model.dto.file.UploadPictureResult;
+import com.hins.cloudpicturebackend.model.dto.user.UserModifyPassWord;
 import com.hins.cloudpicturebackend.model.dto.user.UserQueryRequest;
 import com.hins.cloudpicturebackend.model.dto.user.VipCode;
 import com.hins.cloudpicturebackend.model.entity.User;
 import com.hins.cloudpicturebackend.model.enums.UserRoleEnum;
 import com.hins.cloudpicturebackend.model.vo.LoginUserVO;
 import com.hins.cloudpicturebackend.model.vo.UserVO;
+import com.hins.cloudpicturebackend.service.PictureService;
 import com.hins.cloudpicturebackend.service.UserService;
 import com.hins.cloudpicturebackend.mapper.UserMapper;
+import com.hins.cloudpicturebackend.utils.EmailSenderUtil;
 import lombok.extern.slf4j.Slf4j;
+import org.redisson.api.RedissonClient;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.io.Resource;
+
+import org.springframework.context.annotation.Lazy;
 import org.springframework.core.io.ResourceLoader;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.DigestUtils;
+import org.springframework.web.multipart.MultipartFile;
 
+import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
@@ -49,58 +68,154 @@ import java.util.stream.Collectors;
 public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         implements UserService {
 
-    /**
-     * 用户注册
-     *
-     * @param userAccount   用户账户
-     * @param userPassword  用户密码
-     * @param checkPassword 校验密码
-     * @return 新用户 id
-     */
+    @Resource
+    private RedissonClient redissonClient;
+    @Resource
+    private UserMapper userMapper;
+
+    @Resource
+    private StringRedisTemplate stringRedisTemplate;
+
+    @Resource
+    private EmailSenderUtil emailSenderUtil;
+
+    @Resource
+    @Lazy
+    private CrawlerManager crawlerManager;
+
+    @Resource
+    private FilePictureUpload filePictureUpload;
+    @Resource
+    @Lazy
+    private PictureService pictureService;
+
+
     @Override
-    public long userRegister(String userAccount, String userPassword, String checkPassword) {
+    public boolean validateCaptcha(String userInputCaptcha, String serververifycode) {
+        if (userInputCaptcha != null && serververifycode != null) {
+            // 使用Hutool对用户输入的验证码进行MD5加密
+            String encryptedVerifycode = DigestUtil.md5Hex(userInputCaptcha);
+            if (encryptedVerifycode.equals(serververifycode)) {
+                return true;
+            }
+        }
+        throw new BusinessException(ErrorCode.PARAMS_ERROR, "验证码错误");
+    }
+
+    @Override
+    public long userRegister(String email, String userPassword, String checkPassword, String code) {
         // 1. 校验参数
-        if (StrUtil.hasBlank(userAccount, userPassword, checkPassword)) {
+        if (StrUtil.hasBlank(email, userPassword, checkPassword, code)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "参数为空");
         }
-        if (userAccount.length() < 4) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户账号过短");
+        if (!email.matches("^[a-zA-Z0-9_-]+@[a-zA-Z0-9_-]+(\\.[a-zA-Z0-9_-]+)+$")) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "邮箱格式错误");
         }
-        if (userPassword.length() < 8 || checkPassword.length() < 8) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户密码过短");
+        if (userPassword.length() < 8) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "密码过短");
         }
         if (!userPassword.equals(checkPassword)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "两次输入的密码不一致");
         }
-        // 2. 检查用户账号是否和数据库中已有的重复
-        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
-        queryWrapper.eq("userAccount", userAccount);
-        long count = this.baseMapper.selectCount(queryWrapper);
-        if (count > 0) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "账号重复");
+
+        // 校验验证码
+        String verifyCodeKey = String.format("email:code:verify:register:%s", email);
+        String correctCode = stringRedisTemplate.opsForValue().get(verifyCodeKey);
+        if (correctCode == null || !correctCode.equals(code)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "验证码错误或已过期");
         }
-        // 3. 密码需要加密
-        String encryptPassword = getEncryptPassword(userPassword);
-        // 4. 插入数据到数据库中
-        User user = new User();
-        user.setUserAccount(userAccount);
-        user.setUserPassword(encryptPassword);
-        user.setUserName("无名");
-        user.setUserRole(UserRoleEnum.USER.getValue());
-        boolean saveResult = this.save(user);
-        if (!saveResult) {
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "注册失败，数据库错误");
+
+        synchronized (email.intern()) {
+            // 检查邮箱是否已被注册
+            QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+            queryWrapper.eq("email", email);
+            long count = this.baseMapper.selectCount(queryWrapper);
+            if (count > 0) {
+                throw new BusinessException(ErrorCode.PARAMS_ERROR, "邮箱已被注册");
+            }
+
+            // 检查账号是否已被使用
+            String userAccount = email.substring(0, email.indexOf("@")); // 使用邮箱前缀作为账号
+            queryWrapper = new QueryWrapper<>();
+            queryWrapper.eq("userAccount", userAccount);
+            count = this.baseMapper.selectCount(queryWrapper);
+            if (count > 0) {
+                // 如果账号已存在，则在后面加上随机数
+                userAccount = userAccount + RandomUtil.randomNumbers(4);
+            }
+
+            // 2. 加密
+            String encryptPassword = getEncryptPassword(userPassword);
+            // 3. 插入数据
+            User user = new User();
+            user.setUserAccount(userAccount);
+            user.setEmail(email);
+            user.setUserPassword(encryptPassword);
+            user.setUserName(userAccount); // 使用账号作为默认用户名
+            user.setUserRole(UserRoleEnum.USER.getValue());
+            boolean saveResult = this.save(user);
+            if (!saveResult) {
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "注册失败，数据库错误");
+            }
+            // 删除验证码
+            stringRedisTemplate.delete(verifyCodeKey);
+            return user.getId();
         }
-        return user.getId();
     }
 
+//    /**
+//     * 用户注册
+//     *
+//     * @param userAccount   用户账户
+//     * @param userPassword  用户密码
+//     * @param checkPassword 校验密码
+//     * @return 新用户 id
+//     */
+//    @Deprecated
+//    @Override
+//    public long userRegister(String userAccount, String userPassword, String checkPassword) {
+//        // 1. 校验参数
+//        if (StrUtil.hasBlank(userAccount, userPassword, checkPassword)) {
+//            throw new BusinessException(ErrorCode.PARAMS_ERROR, "参数为空");
+//        }
+//        if (userAccount.length() < 4) {
+//            throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户账号过短");
+//        }
+//        if (userPassword.length() < 8 || checkPassword.length() < 8) {
+//            throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户密码过短");
+//        }
+//        if (!userPassword.equals(checkPassword)) {
+//            throw new BusinessException(ErrorCode.PARAMS_ERROR, "两次输入的密码不一致");
+//        }
+//        // 2. 检查用户账号是否和数据库中已有的重复
+//        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+//        queryWrapper.eq("userAccount", userAccount);
+//        long count = this.baseMapper.selectCount(queryWrapper);
+//        if (count > 0) {
+//            throw new BusinessException(ErrorCode.PARAMS_ERROR, "账号重复");
+//        }
+//        // 3. 密码需要加密
+//        String encryptPassword = getEncryptPassword(userPassword);
+//        // 4. 插入数据到数据库中
+//        User user = new User();
+//        user.setUserAccount(userAccount);
+//        user.setUserPassword(encryptPassword);
+//        user.setUserName("无名");
+//        user.setUserRole(UserRoleEnum.USER.getValue());
+//        boolean saveResult = this.save(user);
+//        if (!saveResult) {
+//            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "注册失败，数据库错误");
+//        }
+//        return user.getId();
+//    }
+
     @Override
-    public LoginUserVO userLogin(String userAccount, String userPassword, HttpServletRequest request) {
+    public LoginUserVO userLogin(String accountOrEmail, String userPassword, HttpServletRequest request) {
         // 1. 校验
-        if (StrUtil.hasBlank(userAccount, userPassword)) {
+        if (StrUtil.hasBlank(accountOrEmail, userPassword)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "参数为空");
         }
-        if (userAccount.length() < 4) {
+        if (accountOrEmail.length() < 4) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "账号错误");
         }
         if (userPassword.length() < 8) {
@@ -110,8 +225,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         String encryptPassword = getEncryptPassword(userPassword);
         // 3. 查询数据库中的用户是否存在
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();
-        queryWrapper.eq("userAccount", userAccount);
-        queryWrapper.eq("userPassword", encryptPassword);
+        queryWrapper.eq("userPassword", encryptPassword)
+                .and(wrapper -> wrapper.eq("userAccount", accountOrEmail)
+                        .or()
+                        .eq("email", accountOrEmail));
         User user = this.baseMapper.selectOne(queryWrapper);
         // 用户不存在，抛异常
         if (user == null) {
@@ -135,25 +252,42 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     @Override
     public String getEncryptPassword(String userPassword) {
         // 加盐，混淆密码
-        final String SALT = "hins";
-        return DigestUtils.md5DigestAsHex((SALT + userPassword).getBytes());
+        return DigestUtils.md5DigestAsHex((CommonValue.DEFAULT_SALT + userPassword).getBytes());
     }
 
     @Override
     public User getLoginUser(HttpServletRequest request) {
-        // 先判断是否已登录
-        Object userObj = request.getSession().getAttribute(UserConstant.USER_LOGIN_STATE);
-        User currentUser = (User) userObj;
-        if (currentUser == null || currentUser.getId() == null) {
+        try {
+            // 优先从 Sa-Token 中获取登录信息
+            if (StpKit.SPACE.isLogin()) {
+                User user = (User) StpKit.SPACE.getSession().get(UserConstant.USER_LOGIN_STATE);
+                if (user != null) {
+                    return user;
+                }
+            }
+
+            // 如果 Sa-Token 中没有，尝试从 Spring Session 中获取（兼容旧代码）
+            Object userObj = request.getSession().getAttribute(UserConstant.USER_LOGIN_STATE);
+            User currentUser = (User) userObj;
+            if (currentUser == null || currentUser.getId() == null) {
+                throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
+            }
+
+            // 从数据库中查询最新的用户信息
+            Long userId = currentUser.getId();
+            currentUser = this.getById(userId);
+            if (currentUser == null) {
+                throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
+            }
+
+            // 更新 Sa-Token 中的用户信息
+            StpKit.SPACE.login(userId);
+            StpKit.SPACE.getSession().set(UserConstant.USER_LOGIN_STATE, currentUser);
+
+            return currentUser;
+        } catch (Exception e) {
             throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
         }
-        // 从数据库查询（追求性能的话可以注释，直接返回上述结果）
-        long userId = currentUser.getId();
-        currentUser = this.getById(userId);
-        if (currentUser == null) {
-            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
-        }
-        return currentUser;
     }
 
 
@@ -171,6 +305,23 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         LoginUserVO loginUserVO = new LoginUserVO();
         BeanUtil.copyProperties(user, loginUserVO);
         return loginUserVO;
+    }
+
+    @Override
+    public User isLogin(HttpServletRequest request) {
+        // 判断是否已经登录
+        Object userObj = request.getSession().getAttribute(UserConstant.USER_LOGIN_STATE);
+        User currentUser = (User) userObj;
+        if (currentUser == null || currentUser.getId() == null) {
+            return null;
+        }
+        // 从数据库中查询（追求性能的话可以注释，直接返回上述结果）
+        Long userId = currentUser.getId();
+        currentUser = this.getById(userId);
+        if (currentUser == null) {
+            return null;
+        }
+        return currentUser;
     }
 
     /**
@@ -242,6 +393,39 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     }
 
     @Override
+    public boolean changePassword(UserModifyPassWord userModifyPassWord, HttpServletRequest request) {
+        if(StrUtil.hasBlank(userModifyPassWord.getOldPassword(), userModifyPassWord.getNewPassword(), userModifyPassWord.getCheckPassword())){
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "参数不能为空");
+        }
+        if(!userModifyPassWord.getNewPassword().equals(userModifyPassWord.getCheckPassword())){
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "两次输入的密码不一致");
+        }
+        if(userModifyPassWord.getNewPassword().length() < 8){
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "新密码长度不能小于8位");
+        }
+        //查询是否有这个用户
+        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("id", userModifyPassWord.getId());
+        String encryptPassword = getEncryptPassword(userModifyPassWord.getOldPassword());
+        queryWrapper.eq("userPassword", encryptPassword);
+        User user = userMapper.selectOne(queryWrapper);
+        if(user == null){
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "原密码错误");
+        }
+
+        user.setUserPassword(getEncryptPassword(userModifyPassWord.getNewPassword()));
+        // 更新MySQL
+        boolean result = userMapper.updateById(user) > 0;
+//        if (result) {
+//            // 更新ES
+//            EsUser esUser = new EsUser();
+//            BeanUtil.copyProperties(user, esUser);
+//            esUserDao.save(esUser);
+//        }
+        return result;
+    }
+
+    @Override
     public boolean isAdmin(User user) {
         return user != null && UserRoleEnum.ADMIN.getValue().equals(user.getUserRole());
     }
@@ -309,7 +493,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
      */
     private JSONArray readVipCodeFile() {
         try {
-            Resource resource = resourceLoader.getResource("classpath:biz/vipCode.json");
+            org.springframework.core.io.Resource resource = resourceLoader.getResource("classpath:biz/vipCode.json");
             String content = FileUtil.readString(resource.getFile(), StandardCharsets.UTF_8);
             return JSONUtil.parseArray(content);
         } catch (IOException e) {
@@ -323,7 +507,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
      */
     private void writeVipCodeFile(JSONArray jsonArray) {
         try {
-            Resource resource = resourceLoader.getResource("classpath:biz/vipCode.json");
+            org.springframework.core.io.Resource resource = resourceLoader.getResource("classpath:biz/vipCode.json");
             FileUtil.writeString(jsonArray.toStringPretty(), resource.getFile(), StandardCharsets.UTF_8);
         } catch (IOException e) {
             log.error("更新兑换码文件失败", e);
@@ -353,6 +537,278 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     }
 
     // endregion *****兑换会员功能*****
+
+    @Override
+    public String updateUserAvatar(MultipartFile multipartFile, Long id, HttpServletRequest request) {
+        //判断用户是否存在
+        User user = userMapper.selectById(id);
+        if(user == null){
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "用户不存在");
+        }
+        //判断用户是否登录
+        User loginUser = getLoginUser(request);
+        if(loginUser == null || !loginUser.getId().equals(id)){
+            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR, "用户未登录");
+        }
+        //判断文件是否为空
+        if(multipartFile == null){
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "文件不能为空");
+        }
+        //判断文件类型
+        // 上传图片，得到图片信息
+        // 按照用户 id 划分目录
+        PictureUploadTemplate pictureUploadTemplate = filePictureUpload;
+        String uploadPathPrefix = String.format("public/%s", loginUser.getId());
+        UploadPictureResult uploadPictureResult = pictureUploadTemplate.uploadPicture(multipartFile, uploadPathPrefix);
+        //更新用户头像
+        user.setUserAvatar(uploadPictureResult.getUrl());
+        // 更新MySQL
+        boolean result = userMapper.updateById(user) > 0;
+//        if (result) {
+//            // 更新ES
+//            EsUser esUser = new EsUser();
+//            BeanUtil.copyProperties(user, esUser);
+//            esUserDao.save(esUser);
+//        }
+        return uploadPictureResult.getUrl();
+    }
+
+    @Override
+    public Map<String, String> getCaptcha() {
+        // 仅包含数字的字符集
+        String characters = "0123456789";
+        // 生成 4 位数字验证码
+        RandomGenerator randomGenerator = new RandomGenerator(characters, 4);
+        // 定义图片的显示大小，并创建验证码对象
+        ShearCaptcha shearCaptcha = CaptchaUtil.createShearCaptcha(320, 100, 4, 4);
+        shearCaptcha.setGenerator(randomGenerator);
+
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        shearCaptcha.write(outputStream);
+        byte[] captchaBytes = outputStream.toByteArray();
+        String base64Captcha = Base64.getEncoder().encodeToString(captchaBytes);
+        String captchaCode = shearCaptcha.getCode();
+
+        // 使用 Hutool 的 MD5 加密
+        String encryptedCaptcha = DigestUtil.md5Hex(captchaCode);
+
+        // 将加密后的验证码和 Base64 编码的图片存储到 Redis 中，设置过期时间为 5 分钟（300 秒）
+        stringRedisTemplate.opsForValue().set("captcha:" + encryptedCaptcha, captchaCode, 300, TimeUnit.SECONDS);
+
+        Map<String, String> data = new HashMap<>();
+        data.put("base64Captcha", base64Captcha);
+        data.put("encryptedCaptcha", encryptedCaptcha);
+        return data;
+    }
+
+    @Override
+    public void sendEmailCode(String email, String type, HttpServletRequest request) {
+        if (StrUtil.hasBlank(email, type)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "参数为空");
+        }
+
+        // 检测高频操作
+        crawlerManager.detectFrequentRequest(request);
+
+        // 获取客户端IP
+        String clientIp = request.getRemoteAddr();
+        String ipKey = String.format("email:code:ip:%s", clientIp);
+        String emailKey = String.format("email:code:email:%s", email);
+
+        // 检查IP是否频繁请求验证码
+        String ipCount = stringRedisTemplate.opsForValue().get(ipKey);
+        if (ipCount != null && Integer.parseInt(ipCount) >= 5) {
+            throw new BusinessException(ErrorCode.TOO_MANY_REQUEST, "请求验证码过于频繁，请稍后再试");
+        }
+
+        // 检查邮箱是否频繁请求验证码
+        String emailCount = stringRedisTemplate.opsForValue().get(emailKey);
+        if (emailCount != null && Integer.parseInt(emailCount) >= 3) {
+            throw new BusinessException(ErrorCode.TOO_MANY_REQUEST, "该邮箱请求验证码过于频繁，请稍后再试");
+        }
+
+        // 生成验证码
+        String code = RandomUtil.randomNumbers(6);
+
+        // 发送验证码
+        try {
+            emailSenderUtil.sendEmail(email, code);
+        } catch (Exception e) {
+            log.error("发送邮件失败", e);
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "发送验证码失败");
+        }
+
+        // 记录IP和邮箱的请求次数，设置1小时过期
+        stringRedisTemplate.opsForValue().increment(ipKey, 1);
+        stringRedisTemplate.expire(ipKey, 1, TimeUnit.HOURS);
+
+        stringRedisTemplate.opsForValue().increment(emailKey, 1);
+        stringRedisTemplate.expire(emailKey, 1, TimeUnit.HOURS);
+
+        // 将验证码存入Redis，设置5分钟过期
+        String verifyCodeKey = String.format("email:code:verify:%s:%s", type, email);
+        stringRedisTemplate.opsForValue().set(verifyCodeKey, code, 5, TimeUnit.MINUTES);
+    }
+
+    @Override
+    public boolean changeEmail(String newEmail, String code, HttpServletRequest request) {
+        // 1. 校验参数
+        if (StrUtil.hasBlank(newEmail, code)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "参数为空");
+        }
+        if (!newEmail.matches("^[a-zA-Z0-9_-]+@[a-zA-Z0-9_-]+(\\.[a-zA-Z0-9_-]+)+$")) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "邮箱格式错误");
+        }
+
+        // 2. 校验验证码
+        String verifyCodeKey = String.format("email:code:verify:changeEmail:%s", newEmail);
+        String correctCode = stringRedisTemplate.opsForValue().get(verifyCodeKey);
+        if (correctCode == null || !correctCode.equals(code)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "验证码错误或已过期");
+        }
+
+        // 3. 获取当前登录用户
+        User loginUser = getLoginUser(request);
+
+        synchronized (newEmail.intern()) {
+            // 4. 检查新邮箱是否已被使用
+            QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+            queryWrapper.eq("email", newEmail);
+            long count = this.baseMapper.selectCount(queryWrapper);
+            if (count > 0) {
+                throw new BusinessException(ErrorCode.PARAMS_ERROR, "该邮箱已被使用");
+            }
+
+            // 5. 更新邮箱
+            User user = new User();
+            user.setId(loginUser.getId());
+            user.setEmail(newEmail);
+            boolean result = this.updateById(user);
+            if (!result) {
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "修改邮箱失败");
+            }
+
+            // 6. 删除验证码
+            stringRedisTemplate.delete(verifyCodeKey);
+            return true;
+        }
+    }
+
+    @Override
+    public boolean resetPassword(String email, String newPassword, String checkPassword, String code) {
+        // 1. 校验参数
+        if (StrUtil.hasBlank(email, newPassword, checkPassword, code)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "参数为空");
+        }
+
+        // 2. 校验邮箱格式
+        if (!email.matches("^[a-zA-Z0-9_-]+@[a-zA-Z0-9_-]+(\\.[a-zA-Z0-9_-]+)+$")) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "邮箱格式错误");
+        }
+
+        // 3. 校验密码
+        if (newPassword.length() < 8) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "密码长度不能小于8位");
+        }
+        if (!newPassword.equals(checkPassword)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "两次输入的密码不一致");
+        }
+
+        // 4. 校验验证码
+        String verifyCodeKey = String.format("email:code:verify:resetPassword:%s", email);
+        String correctCode = stringRedisTemplate.opsForValue().get(verifyCodeKey);
+        if (correctCode == null || !correctCode.equals(code)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "验证码错误或已过期");
+        }
+
+        // 5. 查询用户是否存在
+        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("email", email);
+        User user = this.getOne(queryWrapper);
+        if (user == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "用户不存在");
+        }
+
+        // 6. 更新密码
+        String encryptPassword = getEncryptPassword(newPassword);
+        User updateUser = new User();
+        updateUser.setId(user.getId());
+        updateUser.setUserPassword(encryptPassword);
+        boolean result = this.updateById(updateUser);
+
+        if (result) {
+            // 7. 删除验证码
+            stringRedisTemplate.delete(verifyCodeKey);
+
+        }
+
+        return result;
+    }
+
+    @Override
+    public boolean banOrUnbanUser(Long userId, Boolean isUnban, User admin) {
+        // 1. 校验参数
+        if (userId == null || userId <= 0 || isUnban == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+
+        // 2. 校验管理员权限
+        if (!UserConstant.ADMIN_ROLE.equals(admin.getUserRole())) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "非管理员不能执行此操作");
+        }
+
+        // 3. 获取目标用户信息
+        User targetUser = this.getById(userId);
+        if (targetUser == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "用户不存在");
+        }
+
+        // 4. 检查当前状态是否需要变更
+        boolean isBanned = CrawlerConstant.BAN_ROLE.equals(targetUser.getUserRole());
+        if (isUnban == isBanned) {
+            // 5. 更新用户角色
+            User updateUser = new User();
+            updateUser.setId(userId);
+            updateUser.setUserRole(isUnban ? UserConstant.DEFAULT_ROLE : CrawlerConstant.BAN_ROLE);
+            updateUser.setUpdateTime(new Date());
+            boolean result = this.updateById(updateUser);
+
+            if (result) {
+                // 6. 记录操作日志
+                log.info("管理员[{}]{}用户[{}]",
+                        admin.getUserAccount(),
+                        isUnban ? "解封" : "封禁",
+                        targetUser.getUserAccount());
+
+                // 7. 处理Redis缓存
+                String banKey = String.format("user:ban:%d", userId);
+                if (isUnban) {
+                    stringRedisTemplate.delete(banKey);
+                } else {
+                    stringRedisTemplate.opsForValue().set(banKey, "1");
+                }
+
+//                // 8. 更新ES中的用户信息
+//                try {
+//                    Optional<EsUser> esUserOpt = esUserDao.findById(userId);
+//                    if (esUserOpt.isPresent()) {
+//                        EsUser esUser = esUserOpt.get();
+//                        esUser.setUserRole(isUnban ? UserConstant.DEFAULT_ROLE : CrawlerConstant.BAN_ROLE);
+//                        esUserDao.save(esUser);
+//                    }
+//                } catch (Exception e) {
+//                    log.error("更新ES用户信息失败", e);
+//                }
+            }
+
+            return result;
+        } else {
+            // 状态已经是目标状态
+            String operation = isUnban ? "解封" : "封禁";
+            throw new BusinessException(ErrorCode.OPERATION_ERROR,
+                    String.format("该用户当前%s不需要%s", isUnban ? "未被封禁" : "已被封禁", operation));
+        }
+    }
 }
 
 

@@ -19,11 +19,12 @@
             <result property="vipExpireTime" column="vipExpireTime" />
             <result property="vipCode" column="vipCode" />
             <result property="vipNumber" column="vipNumber" />
+            <result property="email" column="email" />
     </resultMap>
 
     <sql id="Base_Column_List">
         id,userAccount,userPassword,userName,userAvatar,userProfile,
         userRole,editTime,createTime,updateTime,isDelete,
-        vipExpireTime,vipCode,vipNumber
+        vipExpireTime,vipCode,vipNumber,email
     </sql>
 </mapper>
