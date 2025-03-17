@@ -32,6 +32,7 @@ import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
 import java.util.*;
 
+import static com.hins.cloudpicturebackend.constant.CrawlerConstant.BAN_ROLE;
 import static com.hins.cloudpicturebackend.constant.UserConstant.USER_LOGIN_STATE;
 
 /**
@@ -68,20 +69,32 @@ public class StpInterfaceImpl implements StpInterface {
         if (!StpKit.SPACE_TYPE.equals(loginType)) {
             return new ArrayList<>();
         }
-        // 管理员权限，表示权限校验通过
-        List<String> ADMIN_PERMISSIONS = spaceUserAuthManager.getPermissionsByRole(SpaceRoleEnum.ADMIN.getValue());
-        // 获取上下文对象
-        SpaceUserAuthContext authContext = getAuthContextByRequest();
-        // 如果所有字段都为空，表示查询公共图库，可以通过
-        if (isAllFieldsNull(authContext)) {
-            return ADMIN_PERMISSIONS;
-        }
-        // 获取 userId
+
+        // 获取当前登录用户
         User loginUser = (User) StpKit.SPACE.getSessionByLoginId(loginId).get(USER_LOGIN_STATE);
         if (loginUser == null) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "用户未登录");
         }
+
+        // 检查用户是否被封禁
+        if (BAN_ROLE.equals(loginUser.getUserRole())) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "封禁用户禁止访问,请联系管理员");
+        }
+
+        // 管理员权限，表示权限校验通过
+        List<String> ADMIN_PERMISSIONS = spaceUserAuthManager.getPermissionsByRole(SpaceRoleEnum.ADMIN.getValue());
+
+        // 获取上下文对象
+        SpaceUserAuthContext authContext = getAuthContextByRequest();
+
+        // 如果所有字段都为空，表示查询公共图库，可以通过
+        if (isAllFieldsNull(authContext)) {
+            return ADMIN_PERMISSIONS;
+        }
+
+        // 获取 userId
         Long userId = loginUser.getId();
+
         // 优先从上下文中获取 SpaceUser 对象
         SpaceUser spaceUser = authContext.getSpaceUser();
         if (spaceUser != null) {

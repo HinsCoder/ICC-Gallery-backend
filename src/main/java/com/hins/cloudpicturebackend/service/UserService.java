@@ -151,6 +151,22 @@ public interface UserService extends IService<User> {
      */
     boolean isAdmin(User user);
 
+    /**
+     * 是否为会员
+     *
+     * @param user
+     * @return
+     */
+    boolean isVip(User user);
+
+    /**
+     * 更新用户头像
+     *
+     * @param multipartFile 头像文件
+     * @param id            用户id
+     * @param request       HTTP请求
+     * @return 头像url
+     */
     String updateUserAvatar(MultipartFile multipartFile, Long id, HttpServletRequest request);
 
     /**
@@ -201,4 +217,5 @@ public interface UserService extends IService<User> {
      */
     boolean banOrUnbanUser(Long userId, Boolean isUnban, User admin);
 
+    void asyncDeleteUserData(Long id);
 }

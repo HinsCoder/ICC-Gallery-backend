@@ -18,6 +18,7 @@ import com.hins.cloudpicturebackend.model.vo.UserVO;
 import com.hins.cloudpicturebackend.service.UserService;
 import org.springframework.beans.BeanUtils;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
@@ -113,7 +114,7 @@ public class UserController {
      */
     @GetMapping("/get/login")
     public BaseResponse<LoginUserVO> getLoginUser(HttpServletRequest request) {
-        User loginUser = userService.getLoginUser(request);
+        User loginUser = userService.isLogin(request);
         return ResultUtils.success(userService.getLoginUserVO(loginUser));
     }
 
@@ -128,12 +129,38 @@ public class UserController {
     }
 
     /**
-     * 用户注销
+     * 用户登出
      */
     @PostMapping("/logout")
     public BaseResponse<Boolean> userLogout(HttpServletRequest request) {
         ThrowUtils.throwIf(request == null, ErrorCode.PARAMS_ERROR);
         boolean result = userService.userLogout(request);
+        return ResultUtils.success(result);
+    }
+
+    /**
+     * 用户注销
+     */
+    @PostMapping("/destroy")
+    public BaseResponse<Boolean> userDestroy(@RequestBody DeleteRequest userDestroyRequest, HttpServletRequest request) {
+        ThrowUtils.throwIf(userDestroyRequest == null, ErrorCode.PARAMS_ERROR);
+        // 获取当前登录用户
+        User loginUser = userService.getLoginUser(request);
+        // 只能注销自己的账号
+        ThrowUtils.throwIf(!loginUser.getId().equals(userDestroyRequest.getId()),
+                ErrorCode.NO_AUTH_ERROR, "只能注销自己的账号");
+        // 异步删除用户数据
+        userService.asyncDeleteUserData(userDestroyRequest.getId());
+        return ResultUtils.success(true);
+    }
+
+    /**
+     * 更新用户头像
+     */
+    @PostMapping("/update/avatar")
+    public BaseResponse<String> updateUserAvatar(MultipartFile multipartFile, Long id, HttpServletRequest request) {
+        ThrowUtils.throwIf(id <= 0, ErrorCode.PARAMS_ERROR);
+        String result = userService.updateUserAvatar(multipartFile,id, request);
         return ResultUtils.success(result);
     }
 
@@ -192,16 +219,22 @@ public class UserController {
     }
 
     /**
-     * 更新用户（仅管理员）
+     * 更新用户
      */
     @PostMapping("/update")
-    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
-    public BaseResponse<Boolean> updateUser(@RequestBody UserUpdateRequest userUpdateRequest) {
+    public BaseResponse<Boolean> updateUser(@RequestBody UserUpdateRequest userUpdateRequest, HttpServletRequest request) {
         if (userUpdateRequest == null || userUpdateRequest.getId() == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
+        // 判断是否是管理员，管理员可以更新任意用户，普通用户只能更新自己
+        User loginUser = userService.getLoginUser(request);
+        if (loginUser == null || !loginUser.getUserRole().equals(UserConstant.ADMIN_ROLE)) {
+            userUpdateRequest.setUserRole(UserConstant.DEFAULT_ROLE);
+        }
+
         User user = new User();
         BeanUtils.copyProperties(userUpdateRequest, user);
+
         boolean result = userService.updateById(user);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
         return ResultUtils.success(true);

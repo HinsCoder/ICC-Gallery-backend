@@ -28,6 +28,7 @@ import com.hins.cloudpicturebackend.model.dto.file.UploadPictureResult;
 import com.hins.cloudpicturebackend.model.dto.user.UserModifyPassWord;
 import com.hins.cloudpicturebackend.model.dto.user.UserQueryRequest;
 import com.hins.cloudpicturebackend.model.dto.user.VipCode;
+import com.hins.cloudpicturebackend.model.entity.Picture;
 import com.hins.cloudpicturebackend.model.entity.User;
 import com.hins.cloudpicturebackend.model.enums.UserRoleEnum;
 import com.hins.cloudpicturebackend.model.vo.LoginUserVO;
@@ -44,6 +45,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.core.io.ResourceLoader;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.util.DigestUtils;
 import org.springframework.web.multipart.MultipartFile;
@@ -430,6 +432,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         return user != null && UserRoleEnum.ADMIN.getValue().equals(user.getUserRole());
     }
 
+    @Override
+    public boolean isVip(User user) {
+        return user != null && UserRoleEnum.VIP.getValue().equals(user.getUserRole());
+    }
+
     // region *****兑换会员功能*****
     // 新增依赖注入
     @Autowired
@@ -534,6 +541,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         if (!updated) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "开通会员失败，操作数据库失败");
         }
+
+        StpKit.SPACE.getSession().set(UserConstant.USER_LOGIN_STATE, updateUser);
     }
 
     // endregion *****兑换会员功能*****
@@ -554,7 +563,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         if(multipartFile == null){
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "文件不能为空");
         }
-        //判断文件类型
+        // 判断文件类型
         // 上传图片，得到图片信息
         // 按照用户 id 划分目录
         PictureUploadTemplate pictureUploadTemplate = filePictureUpload;
@@ -564,12 +573,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         user.setUserAvatar(uploadPictureResult.getUrl());
         // 更新MySQL
         boolean result = userMapper.updateById(user) > 0;
-//        if (result) {
-//            // 更新ES
-//            EsUser esUser = new EsUser();
-//            BeanUtil.copyProperties(user, esUser);
-//            esUserDao.save(esUser);
-//        }
         return uploadPictureResult.getUrl();
     }
 
@@ -787,18 +790,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
                 } else {
                     stringRedisTemplate.opsForValue().set(banKey, "1");
                 }
-
-//                // 8. 更新ES中的用户信息
-//                try {
-//                    Optional<EsUser> esUserOpt = esUserDao.findById(userId);
-//                    if (esUserOpt.isPresent()) {
-//                        EsUser esUser = esUserOpt.get();
-//                        esUser.setUserRole(isUnban ? UserConstant.DEFAULT_ROLE : CrawlerConstant.BAN_ROLE);
-//                        esUserDao.save(esUser);
-//                    }
-//                } catch (Exception e) {
-//                    log.error("更新ES用户信息失败", e);
-//                }
             }
 
             return result;
@@ -807,6 +798,35 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             String operation = isUnban ? "解封" : "封禁";
             throw new BusinessException(ErrorCode.OPERATION_ERROR,
                     String.format("该用户当前%s不需要%s", isUnban ? "未被封禁" : "已被封禁", operation));
+        }
+    }
+
+    /**
+     * 异步删除用户相关数据
+     */
+    @Async("asyncExecutor")
+    public void asyncDeleteUserData(Long userId) {
+        try {
+            // 1. 删除用户发布的图片
+            QueryWrapper<Picture> pictureQueryWrapper = new QueryWrapper<>();
+            pictureQueryWrapper.eq("userId", userId);
+            List<Picture> pictureList = pictureService.list(pictureQueryWrapper);
+            if (!pictureList.isEmpty()) {
+                // 删除数据库记录
+                pictureService.remove(pictureQueryWrapper);
+            }
+
+            // 2. 删除用户数据
+            this.removeById(userId);
+
+            // 3. 清理相关缓存
+            String userKey = String.format("user:ban:%d", userId);
+            stringRedisTemplate.delete(userKey);
+
+            log.info("用户相关数据删除完成, userId={}", userId);
+        } catch (Exception e) {
+            log.error("删除用户相关数据失败, userId={}", userId, e);
+            // 这里不抛出异常，因为是异步操作，主流程已经完成
         }
     }
 }

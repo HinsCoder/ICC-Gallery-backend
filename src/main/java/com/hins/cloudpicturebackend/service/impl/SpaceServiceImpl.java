@@ -75,7 +75,8 @@ public class SpaceServiceImpl extends ServiceImpl<SpaceMapper, Space>
             space.setSpaceName("默认空间");
         }
         if (space.getSpaceLevel() == null) {
-            space.setSpaceLevel(SpaceLevelEnum.COMMON.getValue());
+//            space.setSpaceLevel(SpaceLevelEnum.COMMON.getValue());
+            space.setSpaceLevel(null);
         }
         if (space.getSpaceType() == null) {
             space.setSpaceType(SpaceTypeEnum.PRIVATE.getValue());
@@ -84,12 +85,29 @@ public class SpaceServiceImpl extends ServiceImpl<SpaceMapper, Space>
         this.fillSpaceBySpaceLevel(space);
         // 2. 校验参数
         this.validSpace(space, true);
-        // 3. 校验权限，非管理员只能创建普通级别的空间
+        // 3. 校验权限，非会员可创建普通版空间，会员可创建普通版与专业版空间，管理员可创建任意级别的空间
         Long userId = loginUser.getId();
         space.setUserId(userId);
-        if (SpaceLevelEnum.COMMON.getValue() != space.getSpaceLevel() && !userService.isAdmin(loginUser)) {
-            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "无权限创建指定级别的空间");
+//        if (SpaceLevelEnum.COMMON.getValue() != space.getSpaceLevel() && !userService.isAdmin(loginUser)) {
+//            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "无权限创建指定级别的空间");
+//        }
+
+        SpaceLevelEnum spaceLevel = SpaceLevelEnum.getEnumByValue(space.getSpaceLevel());
+
+        if (!userService.isAdmin(loginUser)) {
+            if (userService.isVip(loginUser)) {
+                // 会员只能创建普通版和专业版的空间
+                if (spaceLevel == SpaceLevelEnum.FLAGSHIP) {
+                    throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "请联系管理员开通该级别空间");
+                }
+            } else {
+                // 非会员只能创建普通级别的空间
+                if (spaceLevel != SpaceLevelEnum.COMMON) {
+                    throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "请兑换会员或联系管理员开通该级别空间");
+                }
+            }
         }
+
         // 4. 控制同一用户只能创建一个私有空间、以及一个团队空间
         String lock = String.valueOf(userId).intern();
         synchronized (lock) {
