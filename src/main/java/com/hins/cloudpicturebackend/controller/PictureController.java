@@ -366,24 +366,27 @@ public class PictureController {
     @ApiOperation(value = "以图搜图")
     @PostMapping("/search/picture")
     // 百度识图：ImageSearchResult；Pexels：PexelsImageSearchResult；360识图：SoImageSearchResult
-    public BaseResponse<List<SoImageSearchResult>> searchPictureByPicture(@RequestBody SearchPictureByPictureRequest searchPictureByPictureRequest) {
+    public BaseResponse<List<ImageSearchResult>> searchPictureByPicture(@RequestBody SearchPictureByPictureRequest searchPictureByPictureRequest) {
         ThrowUtils.throwIf(searchPictureByPictureRequest == null, ErrorCode.PARAMS_ERROR);
         Long pictureId = searchPictureByPictureRequest.getPictureId();
         ThrowUtils.throwIf(pictureId == null || pictureId <= 0, ErrorCode.PARAMS_ERROR);
         Picture oldPicture = pictureService.getById(pictureId);
         ThrowUtils.throwIf(oldPicture == null, ErrorCode.NOT_FOUND_ERROR);
+
+        String url = oldPicture.getUrl()+"?imageMogr2/format/jpg";
+
         // 使用Pexels API进行图片搜索
         // List<PexelsImageSearchResult> resultList = pexelsImageSearchApiFacade.searchImage(oldPicture.getName());
         // 使用百度识图进行图片搜索
-        // List<ImageSearchResult> resultList = ImageSearchApiFacade.searchImage(oldPicture.getUrl());
+         List<ImageSearchResult> resultList = ImageSearchApiFacade.searchImage(url);
         // 使用360识图进行图片搜索
-        List<SoImageSearchResult> resultList = SoImageSearchApiFacade.searchImage(oldPicture.getUrl(), 0);
+//        List<SoImageSearchResult> resultList = SoImageSearchApiFacade.searchImage(url, 0);
 
 //        List<SoImageSearchResult> resultList = new ArrayList<>();
         // 这个 start 是控制查询多少页, 每页是 20 条
 //        int start = 0;
 //        while (resultList.size() <= 20) {
-//            List<SoImageSearchResult> tempList = SoImageSearchApiFacade.searchImage(oldPicture.getUrl(), start);
+//            List<SoImageSearchResult> tempList = SoImageSearchApiFacade.searchImage(url, start);
 //            if (tempList.isEmpty()) {
 //                break;
 //            }
