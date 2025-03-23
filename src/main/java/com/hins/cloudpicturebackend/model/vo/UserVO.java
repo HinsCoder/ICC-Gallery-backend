@@ -62,6 +62,11 @@ public class UserVO implements Serializable {
     private Long vipNumber;
 
     /**
+     * AI扩图额度
+     */
+    private Integer outPaintingQuota;
+
+    /**
      * 创建时间
      */
     private Date createTime;

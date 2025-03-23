@@ -20,11 +20,12 @@
             <result property="vipCode" column="vipCode" />
             <result property="vipNumber" column="vipNumber" />
             <result property="email" column="email" />
+            <result property="outPaintingQuota" column="outPaintingQuota" />
     </resultMap>
 
     <sql id="Base_Column_List">
         id,userAccount,userPassword,userName,userAvatar,userProfile,
         userRole,editTime,createTime,updateTime,isDelete,
-        vipExpireTime,vipCode,vipNumber,email
+        vipExpireTime,vipCode,vipNumber,email,outPaintingQuota
     </sql>
 </mapper>

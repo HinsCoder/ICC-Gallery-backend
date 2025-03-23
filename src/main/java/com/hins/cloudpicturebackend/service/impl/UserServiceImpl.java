@@ -155,6 +155,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             user.setUserPassword(encryptPassword);
             user.setUserName(userAccount); // 使用账号作为默认用户名
             user.setUserRole(UserRoleEnum.USER.getValue());
+            user.setOutPaintingQuota(1);    // 初始化扩图额度
             boolean saveResult = this.save(user);
             if (!saveResult) {
                 throw new BusinessException(ErrorCode.SYSTEM_ERROR, "注册失败，数据库错误");
@@ -535,6 +536,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         updateUser.setVipExpireTime(expireTime); // 设置过期时间
         updateUser.setVipCode(usedVipCode);     // 记录使用的兑换码
         updateUser.setUserRole(VIP_ROLE);       // 修改用户角色
+        updateUser.setOutPaintingQuota(50);     // 更新扩图额度
 
         // 执行更新
         boolean updated = this.updateById(updateUser);
@@ -546,6 +548,16 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     }
 
     // endregion *****兑换会员功能*****
+
+    @Override
+    public void updateOutPaintingQuota(Long userId, int quota) {
+        User user = getById(userId);
+        if (user != null) {
+            user.setOutPaintingQuota(quota);
+            updateById(user);
+        }
+        StpKit.SPACE.getSession().set(UserConstant.USER_LOGIN_STATE, user);
+    }
 
     @Override
     public String updateUserAvatar(MultipartFile multipartFile, Long id, HttpServletRequest request) {

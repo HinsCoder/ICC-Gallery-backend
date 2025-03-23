@@ -125,3 +125,8 @@ ALTER TABLE user
 -- 邮箱字段，用于存储用户的邮箱地址
 ALTER TABLE user
     ADD COLUMN email VARCHAR(256) NULL COMMENT '用户邮箱';
+
+-- AI扩图额度字段，用于存储用户使用AI扩图功能的额度
+ALTER TABLE user
+    ADD COLUMN outPaintingQuota INT DEFAULT 0 COMMENT '扩图额度';
+

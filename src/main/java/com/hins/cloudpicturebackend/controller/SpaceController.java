@@ -69,19 +69,27 @@ public class SpaceController {
     }
 
     /**
-     * 更新空间（仅管理员可用）
+     * 更新空间
      *
      * @param spaceUpdateRequest
      * @param request
      * @return
      */
     @PostMapping("/update")
-    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     public BaseResponse<Boolean> updateSpace(@RequestBody SpaceUpdateRequest spaceUpdateRequest,
                                              HttpServletRequest request) {
         if (spaceUpdateRequest == null || spaceUpdateRequest.getId() <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
+
+        // 获取当前登录用户
+        User loginUser = userService.getLoginUser(request);
+
+        // 判断是否存在
+        long id = spaceUpdateRequest.getId();
+        Space oldSpace = spaceService.getById(id);
+        ThrowUtils.throwIf(oldSpace == null, ErrorCode.NOT_FOUND_ERROR);
+
         // 将实体类和 DTO 进行转换
         Space space = new Space();
         BeanUtils.copyProperties(spaceUpdateRequest, space);
@@ -89,14 +97,38 @@ public class SpaceController {
         spaceService.fillSpaceBySpaceLevel(space);
         // 数据校验
         spaceService.validSpace(space, false);
-        // 判断是否存在
-        long id = spaceUpdateRequest.getId();
-        Space oldSpace = spaceService.getById(id);
-        ThrowUtils.throwIf(oldSpace == null, ErrorCode.NOT_FOUND_ERROR);
-        // 操作数据库
-        boolean result = spaceService.updateById(space);
-        ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
-        return ResultUtils.success(true);
+        // 权限校验
+        SpaceLevelEnum spaceLevel = SpaceLevelEnum.getEnumByValue(space.getSpaceLevel());
+
+        if (userService.isAdmin(loginUser)) {
+            // 管理员可以更新任意空间
+            boolean result = spaceService.updateById(space);
+            ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+            return ResultUtils.success(true);
+
+        } else {
+            // 非管理员只能更新自己的空间
+            if (!oldSpace.getUserId().equals(loginUser.getId())) {
+                throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "只能更新自己的空间");
+            }
+
+            if (userService.isVip(loginUser)) {
+                // 会员只能更新为普通版和专业版的空间
+                if (spaceLevel == SpaceLevelEnum.FLAGSHIP) {
+                    throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "请联系管理员升级该级别空间");
+                }
+            } else {
+                // 非会员只能更新为普通级别的空间
+                if (spaceLevel != SpaceLevelEnum.COMMON) {
+                    throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "请兑换会员或联系管理员升级该级别空间");
+                }
+            }
+
+            // 操作数据库
+            boolean result = spaceService.updateById(space);
+            ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+            return ResultUtils.success(true);
+        }
     }
 
     /**

@@ -61,5 +61,10 @@ public class LoginUserVO {
      */
     private Date updateTime;
 
+    /**
+     * AI扩图额度
+     */
+    private Integer outPaintingQuota;
+
     private static final long serialVersionUID = 1L;
 }

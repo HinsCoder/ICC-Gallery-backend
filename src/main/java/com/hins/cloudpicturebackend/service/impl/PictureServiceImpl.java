@@ -620,6 +620,13 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND_ERROR, "图片不存在"));
         // 校验权限，已经改为使用注解鉴权
 //        checkPictureAuth(loginUser, picture);
+
+        // 检查扩图额度
+        int currentQuota = loginUser.getOutPaintingQuota();
+        if (currentQuota <= 0) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "扩图额度不足");
+        }
+
         // 创建扩图任务
         CreateOutPaintingTaskRequest createOutPaintingTaskRequest = new CreateOutPaintingTaskRequest();
         CreateOutPaintingTaskRequest.Input input = new CreateOutPaintingTaskRequest.Input();
@@ -627,8 +634,16 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         input.setImageUrl(picture.getUrl());
         createOutPaintingTaskRequest.setInput(input);
         createOutPaintingTaskRequest.setParameters(createPictureOutPaintingTaskRequest.getParameters());
+
         // 创建任务
-        return aliYunAiApi.createOutPaintingTask(createOutPaintingTaskRequest);
+        CreateOutPaintingTaskResponse response = aliYunAiApi.createOutPaintingTask(createOutPaintingTaskRequest);
+
+        // 如果任务成功创建，扣减额度
+        if (response != null && response.getCode() == null) {
+            userService.updateOutPaintingQuota(loginUser.getId(), currentQuota - 1);
+        }
+
+        return response;
     }
 
     /**

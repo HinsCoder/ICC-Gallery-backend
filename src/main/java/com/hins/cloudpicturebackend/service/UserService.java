@@ -175,6 +175,13 @@ public interface UserService extends IService<User> {
     boolean exchangeVip(User user, String vipCode);
 
     /**
+     * 更新用户AI扩图额度
+     * @param userId
+     * @param quota
+     */
+    void updateOutPaintingQuota(Long userId, int quota);
+
+    /**
      * 获取验证码
      * @return 验证码
      */

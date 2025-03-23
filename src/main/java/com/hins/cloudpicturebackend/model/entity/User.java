@@ -72,6 +72,11 @@ public class User implements Serializable {
     private Long vipNumber;
 
     /**
+     * AI扩图额度
+     */
+    private Integer outPaintingQuota;
+
+    /**
      * 编辑时间
      */
     private Date editTime;
