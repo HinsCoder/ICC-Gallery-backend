@@ -18,7 +18,7 @@ import org.springframework.stereotype.Component;
 public class AliYunAiApi {
 
     // 读取配置文件
-    @Value("${aliYunAi.apiKey}")
+    @Value("${aliYunAi.painting.apiKey}")
     private String apiKey;
 
     // 创建任务地址

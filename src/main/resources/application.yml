@@ -100,4 +100,8 @@ knife4j:
 #  apiKey:xxx
 # 阿里云 AI 配置
 #aliYunAi:
-#  apiKey: ${ALI_AI_API_KEY:your-api-key}  # 阿里云 AI API密钥
+#  painting:
+#    apiKey: ${ALI_AI_API_KEY:your-api-key}  # 阿里云 AI API密钥
+#  bailian:
+#    apiKey: xxx
+#    appId: xxx
