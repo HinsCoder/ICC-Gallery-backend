@@ -325,8 +325,8 @@ public class PictureController {
     @GetMapping("/tag_category")
     public BaseResponse<PictureTagCategoryVO> listPictureTagCategory() {
         PictureTagCategoryVO pictureTagCategoryVO = new PictureTagCategoryVO();
-        List<String> tagList = Arrays.asList("热门", "搞笑", "生活", "高清", "艺术", "校园", "背景", "简历", "创意");
-        List<String> categoryList = Arrays.asList("模板", "电商", "表情包", "素材", "海报");
+        List<String> tagList = Arrays.asList("热门", "宣传", "生活", "高清", "节日", "艺术", "校园", "科技", "简历", "创意");
+        List<String> categoryList = Arrays.asList("模板", "电商", "表情包", "素材", "海报", "H5", "小红书", "公众号");
         pictureTagCategoryVO.setTagList(tagList);
         pictureTagCategoryVO.setCategoryList(categoryList);
         return ResultUtils.success(pictureTagCategoryVO);

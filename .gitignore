@@ -1,5 +1,6 @@
 ### Custom ###
 application-local.yml
+application-prod.yml
 /httpTest/
 
 HELP.md
@@ -35,4 +36,3 @@ build/
 
 ### VS Code ###
 .vscode/
-

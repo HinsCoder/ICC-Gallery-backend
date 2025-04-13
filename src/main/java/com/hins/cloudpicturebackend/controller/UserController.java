@@ -103,7 +103,7 @@ public class UserController {
         if (StrUtil.hasBlank(accountOrEmail, userPassword, verifyCode, serververifycode)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
-        // 校验验证码
+        // 校验验证码（接口测试时可暂时屏蔽）
         userService.validateCaptcha(verifyCode, serververifycode);
         LoginUserVO loginUserVO = userService.userLogin(accountOrEmail, userPassword, request);
         return ResultUtils.success(loginUserVO);

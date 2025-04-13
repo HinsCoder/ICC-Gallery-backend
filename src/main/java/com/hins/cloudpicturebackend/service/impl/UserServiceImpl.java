@@ -29,11 +29,13 @@ import com.hins.cloudpicturebackend.model.dto.user.UserModifyPassWord;
 import com.hins.cloudpicturebackend.model.dto.user.UserQueryRequest;
 import com.hins.cloudpicturebackend.model.dto.user.VipCode;
 import com.hins.cloudpicturebackend.model.entity.Picture;
+import com.hins.cloudpicturebackend.model.entity.Space;
 import com.hins.cloudpicturebackend.model.entity.User;
 import com.hins.cloudpicturebackend.model.enums.UserRoleEnum;
 import com.hins.cloudpicturebackend.model.vo.LoginUserVO;
 import com.hins.cloudpicturebackend.model.vo.UserVO;
 import com.hins.cloudpicturebackend.service.PictureService;
+import com.hins.cloudpicturebackend.service.SpaceService;
 import com.hins.cloudpicturebackend.service.UserService;
 import com.hins.cloudpicturebackend.mapper.UserMapper;
 import com.hins.cloudpicturebackend.utils.EmailSenderUtil;
@@ -91,6 +93,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     @Lazy
     private PictureService pictureService;
 
+    @Resource
+    @Lazy
+    private SpaceService spaceService;
 
     @Override
     public boolean validateCaptcha(String userInputCaptcha, String serververifycode) {
@@ -124,6 +129,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         String verifyCodeKey = String.format("email:code:verify:register:%s", email);
         String correctCode = stringRedisTemplate.opsForValue().get(verifyCodeKey);
         if (correctCode == null || !correctCode.equals(code)) {
+            // 接口测试时可暂时屏蔽
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "验证码错误或已过期");
         }
 
@@ -219,10 +225,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "参数为空");
         }
         if (accountOrEmail.length() < 4) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "账号错误");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "账号过短");
         }
         if (userPassword.length() < 8) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "密码错误");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "密码过短");
         }
         // 2. 对用户传递的密码进行加密
         String encryptPassword = getEncryptPassword(userPassword);
@@ -397,13 +403,13 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
 
     @Override
     public boolean changePassword(UserModifyPassWord userModifyPassWord, HttpServletRequest request) {
-        if(StrUtil.hasBlank(userModifyPassWord.getOldPassword(), userModifyPassWord.getNewPassword(), userModifyPassWord.getCheckPassword())){
+        if (StrUtil.hasBlank(userModifyPassWord.getOldPassword(), userModifyPassWord.getNewPassword(), userModifyPassWord.getCheckPassword())) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "参数不能为空");
         }
-        if(!userModifyPassWord.getNewPassword().equals(userModifyPassWord.getCheckPassword())){
+        if (!userModifyPassWord.getNewPassword().equals(userModifyPassWord.getCheckPassword())) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "两次输入的密码不一致");
         }
-        if(userModifyPassWord.getNewPassword().length() < 8){
+        if (userModifyPassWord.getNewPassword().length() < 8) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "新密码长度不能小于8位");
         }
         //查询是否有这个用户
@@ -412,7 +418,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         String encryptPassword = getEncryptPassword(userModifyPassWord.getOldPassword());
         queryWrapper.eq("userPassword", encryptPassword);
         User user = userMapper.selectOne(queryWrapper);
-        if(user == null){
+        if (user == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "原密码错误");
         }
 
@@ -563,16 +569,16 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     public String updateUserAvatar(MultipartFile multipartFile, Long id, HttpServletRequest request) {
         //判断用户是否存在
         User user = userMapper.selectById(id);
-        if(user == null){
+        if (user == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "用户不存在");
         }
         //判断用户是否登录
         User loginUser = getLoginUser(request);
-        if(loginUser == null || !loginUser.getId().equals(id)){
+        if (loginUser == null || !loginUser.getId().equals(id)) {
             throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR, "用户未登录");
         }
         //判断文件是否为空
-        if(multipartFile == null){
+        if (multipartFile == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "文件不能为空");
         }
         // 判断文件类型
@@ -679,6 +685,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         String verifyCodeKey = String.format("email:code:verify:changeEmail:%s", newEmail);
         String correctCode = stringRedisTemplate.opsForValue().get(verifyCodeKey);
         if (correctCode == null || !correctCode.equals(code)) {
+            // 接口测试时可暂时屏蔽
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "验证码错误或已过期");
         }
 
@@ -733,6 +740,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         String verifyCodeKey = String.format("email:code:verify:resetPassword:%s", email);
         String correctCode = stringRedisTemplate.opsForValue().get(verifyCodeKey);
         if (correctCode == null || !correctCode.equals(code)) {
+            // 接口测试时可暂时屏蔽
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "验证码错误或已过期");
         }
 
@@ -816,7 +824,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     /**
      * 异步删除用户相关数据
      */
-    @Async("asyncExecutor")
+    @Async
     public void asyncDeleteUserData(Long userId) {
         try {
             // 1. 删除用户发布的图片
@@ -828,10 +836,19 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
                 pictureService.remove(pictureQueryWrapper);
             }
 
-            // 2. 删除用户数据
+            // 2. 删除用户的空间
+            QueryWrapper<Space> spaceQueryWrapper = new QueryWrapper<>();
+            spaceQueryWrapper.eq("userId", userId);
+            List<Space> spaceList = spaceService.list(spaceQueryWrapper);
+            if (!spaceList.isEmpty()) {
+                // 删除数据库记录
+                spaceService.remove(spaceQueryWrapper);
+            }
+
+            // 3. 删除用户数据
             this.removeById(userId);
 
-            // 3. 清理相关缓存
+            // 4. 清理相关缓存
             String userKey = String.format("user:ban:%d", userId);
             stringRedisTemplate.delete(userKey);
 
