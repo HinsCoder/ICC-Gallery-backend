@@ -115,8 +115,10 @@ public class SpaceController {
             if (userService.isVip(loginUser)) {
                 // 会员只能更新为普通版和专业版的空间
                 if (spaceLevel == SpaceLevelEnum.FLAGSHIP) {
-                    throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "请联系管理员升级该级别空间");
+                    throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "请开通钻石会员或联系管理员升级该级别空间");
                 }
+            } else if (userService.isSVip(loginUser)) {
+                // 钻石会员可以更新为旗舰版和专业版的空间
             } else {
                 // 非会员只能更新为普通级别的空间
                 if (spaceLevel != SpaceLevelEnum.COMMON) {
@@ -185,7 +187,7 @@ public class SpaceController {
         long current = spaceQueryRequest.getCurrent();
         long size = spaceQueryRequest.getPageSize();
         // 限制爬虫
-        ThrowUtils.throwIf(size > 20, ErrorCode.PARAMS_ERROR);
+        ThrowUtils.throwIf(size > 30, ErrorCode.PARAMS_ERROR);
         // 查询数据库
         Page<Space> spacePage = spaceService.page(new Page<>(current, size),
                 spaceService.getQueryWrapper(spaceQueryRequest));

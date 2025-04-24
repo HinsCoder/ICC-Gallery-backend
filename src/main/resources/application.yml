@@ -105,3 +105,9 @@ knife4j:
 #  bailian:
 #    apiKey: xxx
 #    appId: xxx
+# 会员服务
+#vip:
+#  gold-vip-code:
+#    file-path: C:\Users\Hins\IdeaProjects\Cloud-Picture-Backend\src\main\resources\biz\vipCode.json
+#  diamond-vip-code:
+#    file-path: C:\Users\Hins\IdeaProjects\Cloud-Picture-Backend\src\main\resources\biz\svipCode.json

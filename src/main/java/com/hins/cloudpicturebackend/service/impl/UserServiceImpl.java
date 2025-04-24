@@ -39,24 +39,31 @@ import com.hins.cloudpicturebackend.service.SpaceService;
 import com.hins.cloudpicturebackend.service.UserService;
 import com.hins.cloudpicturebackend.mapper.UserMapper;
 import com.hins.cloudpicturebackend.utils.EmailSenderUtil;
+import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RedissonClient;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.core.io.ResourceLoader;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.DigestUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
@@ -151,6 +158,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
                 // 如果账号已存在，则在后面加上随机数
                 userAccount = userAccount + RandomUtil.randomNumbers(4);
             }
+            String defaultAvatarUrl = String.format(
+                    "https://api.dicebear.com/9.x/fun-emoji/svg?seed=%s&backgroundColor=059ff2,71cf62,f6d594,b6e3f4,c0aede,ffd5dc,d1d4f9,ffdfbf&backgroundType=solid,gradientLinear",
+                    userAccount
+            );
 
             // 2. 加密
             String encryptPassword = getEncryptPassword(userPassword);
@@ -162,6 +173,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             user.setUserName(userAccount); // 使用账号作为默认用户名
             user.setUserRole(UserRoleEnum.USER.getValue());
             user.setOutPaintingQuota(1);    // 初始化扩图额度
+            user.setUserAvatar(defaultAvatarUrl);
             boolean saveResult = this.save(user);
             if (!saveResult) {
                 throw new BusinessException(ErrorCode.SYSTEM_ERROR, "注册失败，数据库错误");
@@ -444,113 +456,244 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         return user != null && UserRoleEnum.VIP.getValue().equals(user.getUserRole());
     }
 
+    @Override
+    public boolean isSVip(User user) {
+        return user != null && UserRoleEnum.SVIP.getValue().equals(user.getUserRole());
+    }
+
     // region *****兑换会员功能*****
-    // 新增依赖注入
-    @Autowired
-    private ResourceLoader resourceLoader;
+//    // 新增依赖注入
+//    @Autowired
+//    private ResourceLoader resourceLoader;
 
     // 文件读写锁（确保并发安全）
     private final ReentrantLock fileLock = new ReentrantLock();
 
-    // VIP 角色常量（根据你的需求自定义）
+    // VIP 角色常量
     private static final String VIP_ROLE = "vip";
 
+    private static final String SVIP_ROLE = "svip";
+
+    @Value("${vip.gold-vip-code.file-path}")
+    private String vipCodeFilePath;
+
+    @Value("${vip.diamond-vip-code.file-path}")
+    private String svipCodeFilePath;
+
+    @Data
+    private static class ValidationResult {
+        private final VipCode vipCode;
+        private final UserRoleEnum role;
+        private final String filePathUsed;
+
+        public ValidationResult(VipCode vipCode, UserRoleEnum role, String filePathUsed) {
+            this.vipCode = vipCode;
+            this.role = role;
+            this.filePathUsed = filePathUsed;
+        }
+    }
+
     /**
-     * 兑换会员
+     * 兑换会员 (自动判断 VIP 或 SVIP)
      *
-     * @param user
-     * @param vipCode
-     * @return
+     * @param user    当前登录用户
+     * @param vipCode 用户输入的兑换码
+     * @return 是否成功
      */
     @Override
+    @Transactional
     public boolean exchangeVip(User user, String vipCode) {
         // 1. 参数校验
         if (user == null || StrUtil.isBlank(vipCode)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
-        // 2. 读取并校验兑换码
-        VipCode targetCode = validateAndMarkVipCode(vipCode);
-        // 3. 更新用户信息
-        updateUserVipInfo(user, targetCode.getCode());
+        // 2. 读取、校验兑换码并获取结果 (包含类型和码对象)
+        ValidationResult validationResult = validateAndMarkVipCode(vipCode); // 调用修改后的验证方法
+
+        // 3. 更新用户信息 (使用验证结果中的角色)
+        updateUserVipInfo(user, validationResult.getVipCode().getCode(), validationResult.getRole()); // 传入角色
+
         return true;
     }
 
+
     /**
-     * 校验兑换码并标记为已使用
+     * 校验兑换码（VIP 或 SVIP），标记为已使用，并返回结果信息
+     *
+     * @param inputCode 用户输入的兑换码
+     * @return ValidationResult 包含 VipCode 对象、对应的角色和操作的文件路径
+     * @throws BusinessException 如果码无效、已被使用或文件操作失败
      */
-    private VipCode validateAndMarkVipCode(String vipCode) {
+    private ValidationResult validateAndMarkVipCode(String inputCode) {
         fileLock.lock(); // 加锁保证文件操作原子性
         try {
-            // 读取 JSON 文件
-            JSONArray jsonArray = readVipCodeFile();
+            // --- 尝试 VIP 文件 ---
+            try {
+                JSONArray vipJsonArray = readCodeFile(vipCodeFilePath); // 使用通用读取方法
+                // --- 使用你项目中的 VipCode DTO ---
+                List<VipCode> vipCodes = JSONUtil.toList(vipJsonArray, com.hins.cloudpicturebackend.model.dto.user.VipCode.class);
+                Optional<VipCode> targetVipOpt = vipCodes.stream()
+                        .filter(code -> code.getCode().equals(inputCode))
+                        .findFirst();
 
-            // 查找匹配的未使用兑换码
-            List<VipCode> codes = JSONUtil.toList(jsonArray, VipCode.class);
-            VipCode target = codes.stream()
-                    .filter(code -> code.getCode().equals(vipCode) && !code.isHasUsed())
-                    .findFirst()
-                    .orElseThrow(() -> new BusinessException(ErrorCode.PARAMS_ERROR, "无效的兑换码"));
+                if (targetVipOpt.isPresent()) {
+                    VipCode targetVip = targetVipOpt.get();
+                    if (!targetVip.isHasUsed()) {
+                        targetVip.setHasUsed(true);
+                        writeCodeFile(vipCodeFilePath, JSONUtil.parseArray(vipCodes));
+                        log.info("兑换码 {} 在 VIP 文件中找到并标记。", inputCode);
+                        return new ValidationResult(targetVip, UserRoleEnum.VIP, vipCodeFilePath);
+                    } else {
+                        log.warn("尝试兑换的 VIP 码 {} 已被使用。", inputCode);
+                        throw new BusinessException(ErrorCode.OPERATION_ERROR, "该兑换码已被使用");
+                    }
+                }
+                log.debug("兑换码 {} 在 VIP 文件中未找到，尝试 SVIP 文件。", inputCode);
 
-            // 标记为已使用
-            target.setHasUsed(true);
+            } catch (BusinessException e) {
+                if (e.getMessage().contains("已被使用")) throw e;
+                log.error("处理 VIP 兑换码文件时出错，将尝试 SVIP 文件: {}", e.getMessage());
+            }
 
-            // 写回文件
-            writeVipCodeFile(JSONUtil.parseArray(codes));
-            return target;
+            // --- 尝试 SVIP 文件 ---
+            try {
+                JSONArray svipJsonArray = readCodeFile(svipCodeFilePath);
+                // --- 使用你项目中的 VipCode DTO ---
+                List<VipCode> svipCodes = JSONUtil.toList(svipJsonArray, com.hins.cloudpicturebackend.model.dto.user.VipCode.class);
+                Optional<VipCode> targetSvipOpt = svipCodes.stream()
+                        .filter(code -> code.getCode().equals(inputCode))
+                        .findFirst();
+
+                if (targetSvipOpt.isPresent()) {
+                    VipCode targetSvip = targetSvipOpt.get();
+                    if (!targetSvip.isHasUsed()) {
+                        targetSvip.setHasUsed(true);
+                        writeCodeFile(svipCodeFilePath, JSONUtil.parseArray(svipCodes));
+                        log.info("兑换码 {} 在 SVIP 文件中找到并标记。", inputCode);
+                        return new ValidationResult(targetSvip, UserRoleEnum.SVIP, svipCodeFilePath);
+                    } else {
+                        log.warn("尝试兑换的 SVIP 码 {} 已被使用。", inputCode);
+                        throw new BusinessException(ErrorCode.OPERATION_ERROR, "该兑换码已被使用");
+                    }
+                }
+                log.warn("兑换码 {} 在 VIP 和 SVIP 文件中均未找到。", inputCode);
+                throw new BusinessException(ErrorCode.PARAMS_ERROR, "无效的兑换码");
+
+            } catch (BusinessException e) {
+                if (e.getMessage().contains("已被使用")) throw e;
+                log.error("处理 SVIP 兑换码文件时出错: {}", e.getMessage());
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "处理兑换码失败，请稍后重试");
+            }
+
         } finally {
             fileLock.unlock();
         }
     }
 
     /**
-     * 读取兑换码文件
+     * 通用读取兑换码文件
      */
-    private JSONArray readVipCodeFile() {
+    private JSONArray readCodeFile(String filePath) {
+        File codeFile = new File(filePath);
+        if (!codeFile.exists()) {
+            log.error("指定的兑换码文件不存在: {}", filePath);
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "兑换码配置文件丢失: " + codeFile.getName());
+        }
+        if (!codeFile.isFile()){
+            log.error("指定的兑换码文件路径不是一个文件: {}", filePath);
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "兑换码配置路径错误: " + codeFile.getName());
+        }
+        if (!codeFile.canRead()) {
+            log.error("没有读取兑换码文件的权限: {}", filePath);
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "无法读取兑换码配置: " + codeFile.getName());
+        }
         try {
-            org.springframework.core.io.Resource resource = resourceLoader.getResource("classpath:biz/vipCode.json");
-            String content = FileUtil.readString(resource.getFile(), StandardCharsets.UTF_8);
-            return JSONUtil.parseArray(content);
-        } catch (IOException e) {
-            log.error("读取兑换码文件失败", e);
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "系统繁忙");
+            String content = FileUtil.readString(codeFile, StandardCharsets.UTF_8);
+            return content.isEmpty() ? new JSONArray() : JSONUtil.parseArray(content);
+        } catch (Exception e) {
+            log.error("读取或解析外部兑换码文件失败: {}", filePath, e);
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "无法加载兑换码配置");
         }
     }
 
     /**
-     * 写入兑换码文件
+     * 通用写入兑换码文件（覆盖写入）
      */
-    private void writeVipCodeFile(JSONArray jsonArray) {
+    private void writeCodeFile(String filePath, JSONArray jsonArray) {
+        if (jsonArray == null) {
+            log.error("尝试将 null 写入兑换码文件: {}", filePath);
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "内部错误：无法保存兑换码状态");
+        }
+        File codeFile = new File(filePath);
+        if (codeFile.exists() && !codeFile.canWrite()) {
+            log.error("没有写入兑换码文件的权限: {}", filePath);
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "无法保存兑换码状态更新: " + codeFile.getName());
+        }
+        File parentDir = codeFile.getParentFile();
+        if (parentDir != null && !parentDir.exists()) {
+            if (!parentDir.mkdirs()) {
+                log.error("无法创建兑换码文件的父目录: {}", parentDir.getAbsolutePath());
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "无法保存兑换码状态更新");
+            }
+        }
         try {
-            org.springframework.core.io.Resource resource = resourceLoader.getResource("classpath:biz/vipCode.json");
-            FileUtil.writeString(jsonArray.toStringPretty(), resource.getFile(), StandardCharsets.UTF_8);
+            String contentToWrite = jsonArray.toStringPretty();
+            Files.write(Paths.get(filePath),
+                    contentToWrite.getBytes(StandardCharsets.UTF_8),
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.WRITE,
+                    StandardOpenOption.TRUNCATE_EXISTING);
+            log.info("成功更新兑换码文件: {}", filePath);
         } catch (IOException e) {
-            log.error("更新兑换码文件失败", e);
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "系统繁忙");
+            log.error("写入兑换码到外部文件失败: {}", filePath, e);
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "无法保存兑换码状态更新");
         }
     }
 
+    // --- updateUserVipInfo 方法保持不变 ---
     /**
      * 更新用户会员信息
      */
-    private void updateUserVipInfo(User user, String usedVipCode) {
-        // 计算过期时间（当前时间 + 1 年）
-        Date expireTime = DateUtil.offsetMonth(new Date(), 12); // 计算当前时间加 1 年后的时间
-
-        // 构建更新对象
-        User updateUser = new User();
-        updateUser.setId(user.getId());
-        updateUser.setVipExpireTime(expireTime); // 设置过期时间
-        updateUser.setVipCode(usedVipCode);     // 记录使用的兑换码
-        updateUser.setUserRole(VIP_ROLE);       // 修改用户角色
-        updateUser.setOutPaintingQuota(50);     // 更新扩图额度
-
-        // 执行更新
-        boolean updated = this.updateById(updateUser);
-        if (!updated) {
-            throw new BusinessException(ErrorCode.OPERATION_ERROR, "开通会员失败，操作数据库失败");
+    private void updateUserVipInfo(User user, String usedVipCode, UserRoleEnum targetRole) {
+        Date expireTime = DateUtil.offsetMonth(new Date(), 12);
+        int quota = (targetRole == UserRoleEnum.VIP) ? 50 : (targetRole == UserRoleEnum.SVIP ? 100 : 0);
+        if (quota == 0 && (targetRole == UserRoleEnum.VIP || targetRole == UserRoleEnum.SVIP)) {
+            log.warn("为角色 {} 设置的额度为 0，请检查逻辑。", targetRole);
         }
 
-        StpKit.SPACE.getSession().set(UserConstant.USER_LOGIN_STATE, updateUser);
+        User updateUser = new User();
+        updateUser.setId(user.getId());
+        updateUser.setVipExpireTime(expireTime);
+        updateUser.setVipCode(usedVipCode);
+        updateUser.setUserRole(targetRole.getValue());
+        updateUser.setOutPaintingQuota(quota);
+
+        boolean updated = this.updateById(updateUser);
+        if (!updated) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "开通会员失败，更新用户信息时出错");
+        }
+        log.info("用户 {} 使用兑换码 {} 成功开通/续期 {}, 过期时间: {}, 额度设置为: {}",
+                user.getId(), usedVipCode, targetRole.getText(), expireTime, quota);
+
+        // 更新 Session
+        try {
+            Object sessionObj = StpKit.SPACE.getSession().get(UserConstant.USER_LOGIN_STATE);
+            // --- 确保这里的类型是你 Session 中实际存储的用户信息类型 ---
+            if (sessionObj instanceof User) { // 或者 LoginUserVO 等
+                User sessionUser = (User) sessionObj;
+                sessionUser.setUserRole(targetRole.getValue());
+                sessionUser.setVipExpireTime(expireTime);
+                sessionUser.setOutPaintingQuota(quota);
+                StpKit.SPACE.getSession().set(UserConstant.USER_LOGIN_STATE, sessionUser);
+                log.info("用户 {} 的 Session 信息已更新。", user.getId());
+            } else if (sessionObj != null) {
+                log.warn("Session 中的用户信息类型 ({}) 不匹配，无法更新。", sessionObj.getClass().getName());
+            } else {
+                log.warn("Session 中未找到用户信息，无法更新。");
+            }
+        } catch (Exception e) {
+            log.error("更新用户 Session 信息时出错", e);
+        }
     }
 
     // endregion *****兑换会员功能*****

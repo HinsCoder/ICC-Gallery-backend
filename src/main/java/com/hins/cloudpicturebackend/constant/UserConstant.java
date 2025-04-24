@@ -20,6 +20,11 @@ public interface UserConstant {
     String VIP_ROLE = "vip";
 
     /**
+     * SVIP角色
+     */
+    String SVIP_ROLE = "svip";
+
+    /**
      * 管理员角色
      */
     String ADMIN_ROLE = "admin";

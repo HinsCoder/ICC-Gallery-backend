@@ -152,12 +152,20 @@ public interface UserService extends IService<User> {
     boolean isAdmin(User user);
 
     /**
-     * 是否为会员
+     * 是否为黄金会员
      *
      * @param user
      * @return
      */
     boolean isVip(User user);
+
+    /**
+     * 是否为钻石会员
+     *
+     * @param user
+     * @return
+     */
+    boolean isSVip(User user);
 
     /**
      * 更新用户头像

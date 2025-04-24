@@ -96,11 +96,14 @@ public class SpaceServiceImpl extends ServiceImpl<SpaceMapper, Space>
 
         if (!userService.isAdmin(loginUser)) {
             if (userService.isVip(loginUser)) {
-                // 会员只能创建普通版和专业版的空间
+                // 黄金会员只能创建普通版和专业版的空间
                 if (spaceLevel == SpaceLevelEnum.FLAGSHIP) {
-                    throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "请联系管理员开通该级别空间");
+                    throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "请开通钻石会员或联系管理员开通该级别空间");
                 }
-            } else {
+            } else if(userService.isSVip(loginUser)){
+                // 钻石会员可以创建旗舰版和专业版的空间
+            }
+            else {
                 // 非会员只能创建普通级别的空间
                 if (spaceLevel != SpaceLevelEnum.COMMON) {
                     throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "请兑换会员或联系管理员开通该级别空间");
